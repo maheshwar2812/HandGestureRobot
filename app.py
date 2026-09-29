@@ -1,55 +1,26 @@
 import streamlit as st
+import streamlit.components.v1 as components
+
 import cv2
+import av
 import mediapipe as mp
-import math
-import time
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+
+from streamlit_webrtc import webrtc_streamer
+
+from threading import Lock
+from datetime import datetime
 
 
 # ============================================================
-# PAGE CONFIGURATION
+# PAGE CONFIG
 # ============================================================
 
 st.set_page_config(
-    page_title="Vision Robot Control",
+    page_title="HandGestureRobot",
     page_icon="🤖",
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-
-# ============================================================
-# AUTHENTICATION
-# ============================================================
-
-from auth import login_page, logout
-
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-
-if not st.session_state.logged_in:
-    login_page()
-    st.stop()
-
-
-# ============================================================
-# SESSION VARIABLES
-# ============================================================
-
-if "robot_x" not in st.session_state:
-    st.session_state.robot_x = 300
-
-if "robot_y" not in st.session_state:
-    st.session_state.robot_y = 250
-
-if "current_command" not in st.session_state:
-    st.session_state.current_command = "STOP"
-
-if "emergency_stop" not in st.session_state:
-    st.session_state.emergency_stop = False
-
-if "command_history" not in st.session_state:
-    st.session_state.command_history = []
 
 
 # ============================================================
@@ -60,124 +31,98 @@ st.markdown(
     """
     <style>
 
-    /* Main background */
+    /* Main application */
+
     .stApp {
-        background-color: #0e1117;
+        background: #0b1120;
     }
+
 
     /* Sidebar */
+
     section[data-testid="stSidebar"] {
-        background-color: #111827;
-        border-right: 1px solid #263244;
+        background: #111827;
+        border-right: 1px solid #1f2937;
     }
 
-    /* Sidebar title */
-    .sidebar-title {
-        font-size: 25px;
-        font-weight: 700;
-        margin-bottom: 5px;
+
+    /* Headings */
+
+    h1 {
+        color: #f8fafc !important;
+        font-weight: 700 !important;
     }
 
-    .sidebar-subtitle {
-        color: #9ca3af;
-        font-size: 13px;
-        margin-bottom: 25px;
+    h2, h3 {
+        color: #e5e7eb !important;
     }
 
-    /* Main title */
-    .main-title {
-        font-size: 34px;
-        font-weight: 800;
-        margin-bottom: 3px;
+
+    /* Text */
+
+    p {
+        color: #cbd5e1;
     }
 
-    .main-subtitle {
-        color: #9ca3af;
-        font-size: 15px;
-        margin-bottom: 25px;
-    }
 
-    /* Cards */
-    .card {
-        background: #151b26;
+    /* Metric cards */
+
+    div[data-testid="stMetric"] {
+        background: #111827;
         border: 1px solid #263244;
-        border-radius: 14px;
-        padding: 20px;
-        margin-bottom: 15px;
+        border-radius: 12px;
+        padding: 14px;
     }
 
-    .card-title {
-        font-size: 14px;
-        color: #9ca3af;
-        margin-bottom: 8px;
+
+    /* Buttons */
+
+    .stButton > button {
+        border-radius: 8px;
+        min-height: 42px;
+        font-weight: 600;
     }
 
-    .card-value {
-        font-size: 25px;
-        font-weight: 700;
-    }
 
-    /* Command */
-    .command-card {
-        background: #151b26;
-        border: 1px solid #263244;
-        border-radius: 16px;
-        padding: 30px;
-        text-align: center;
-        min-height: 230px;
-    }
+    /* Status card */
 
-    .command-label {
-        color: #9ca3af;
-        font-size: 14px;
-        margin-bottom: 15px;
-    }
-
-    .command-value {
-        font-size: 42px;
-        font-weight: 800;
-        margin-bottom: 10px;
-    }
-
-    .command-description {
-        color: #9ca3af;
-        font-size: 14px;
-    }
-
-    /* Status */
-    .status-online {
-        color: #22c55e;
-        font-weight: 700;
-    }
-
-    .status-offline {
-        color: #ef4444;
-        font-weight: 700;
-    }
-
-    /* Section title */
-    .section-title {
-        font-size: 20px;
-        font-weight: 700;
-        margin-top: 10px;
-        margin-bottom: 15px;
-    }
-
-    /* User card */
-    .user-card {
-        background: #151b26;
+    .status-card {
+        background: #111827;
         border: 1px solid #263244;
         border-radius: 12px;
         padding: 15px;
-        margin-top: 20px;
+        text-align: center;
+        margin-bottom: 10px;
     }
 
-    /* Footer */
-    .footer {
+
+    /* Command card */
+
+    .command-card {
+        background: #111827;
+        border: 1px solid #263244;
+        border-radius: 12px;
+        padding: 18px;
         text-align: center;
-        color: #6b7280;
-        font-size: 12px;
-        padding: 30px;
+        margin-top: 10px;
+    }
+
+
+    /* Section card */
+
+    .section-card {
+        background: #111827;
+        border: 1px solid #263244;
+        border-radius: 14px;
+        padding: 18px;
+    }
+
+
+    /* Small text */
+
+    .small-text {
+        color: #94a3b8;
+        font-size: 14px;
     }
 
     </style>
@@ -187,70 +132,102 @@ st.markdown(
 
 
 # ============================================================
-# SIDEBAR
+# AUTHENTICATION
 # ============================================================
 
-with st.sidebar:
+from auth import login_page, logout
 
-    st.markdown(
-        """
-        <div class="sidebar-title">🤖 Vision Robot</div>
-        <div class="sidebar-subtitle">
-        Hand Gesture Control System
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
 
-    st.markdown("### 🏠 Navigation")
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
-    page = st.radio(
-        "",
-        [
-            "Dashboard",
-            "Live Control",
-            "Robot",
-            "Analytics",
-            "History",
-            "Settings"
-        ],
-        label_visibility="collapsed"
-    )
 
-    st.markdown("---")
+if not st.session_state.logged_in:
 
-    st.markdown("### 👤 User")
+    login_page()
 
-    st.write(f"**{st.session_state.get('user_name', 'User')}**")
-    st.caption(st.session_state.get("user_email", ""))
-
-    if st.button("🚪 Logout", use_container_width=True):
-        logout()
+    st.stop()
 
 
 # ============================================================
-# MEDIAPIPE TASKS API
+# THREAD-SAFE COMMAND STATE
 # ============================================================
 
-BaseOptions = mp.tasks.BaseOptions
+class CommandState:
 
-HandLandmarker = mp.tasks.vision.HandLandmarker
+    def __init__(self):
 
-HandLandmarkerOptions = mp.tasks.vision.HandLandmarkerOptions
+        self.command = "STOP"
 
-VisionRunningMode = mp.tasks.vision.RunningMode
+        self.lock = Lock()
+
+    def set_command(self, command):
+
+        with self.lock:
+
+            self.command = command
+
+    def get_command(self):
+
+        with self.lock:
+
+            return self.command
+
+
+if "command_state" not in st.session_state:
+
+    st.session_state.command_state = CommandState()
+
+
+command_state = st.session_state.command_state
 
 
 # ============================================================
-# HELPER FUNCTION
+# SESSION STATE
 # ============================================================
 
-def distance(a, b):
+defaults = {
 
-    return math.sqrt(
-        (a.x - b.x) ** 2 +
-        (a.y - b.y) ** 2
-    )
+    "robot_x": 50.0,
+
+    "robot_y": 50.0,
+
+    "robot_speed": 1.5,
+
+    "emergency_stop": False,
+
+    "history": [],
+
+    "last_recorded_command": None,
+
+    "total_commands": 0,
+
+    "gesture_counts": {
+
+        "FORWARD": 0,
+
+        "BACKWARD": 0,
+
+        "LEFT": 0,
+
+        "RIGHT": 0,
+
+        "STOP": 0
+    },
+
+    "robot_path": [],
+
+    "show_landmarks": True,
+
+    "mirror_camera": True
+}
+
+
+for key, value in defaults.items():
+
+    if key not in st.session_state:
+
+        st.session_state[key] = value
 
 
 # ============================================================
@@ -259,980 +236,1840 @@ def distance(a, b):
 
 def recognize_gesture(hand):
 
-    wrist = hand[0]
+    fingers_up = 0
 
-    index_mcp = hand[5]
-    index_pip = hand[6]
-    index_tip = hand[8]
 
-    middle_mcp = hand[9]
-    middle_pip = hand[10]
-    middle_tip = hand[12]
+    # Index
 
-    ring_mcp = hand[13]
-    ring_pip = hand[14]
-    ring_tip = hand[16]
+    if hand[8].y < hand[6].y:
+        fingers_up += 1
 
-    little_mcp = hand[17]
-    little_pip = hand[18]
-    little_tip = hand[20]
 
-    # --------------------------------------------------------
-    # Finger extension detection
-    # --------------------------------------------------------
+    # Middle
 
-    index_extended = (
-        distance(index_tip, wrist)
-        >
-        distance(index_pip, wrist) * 1.12
-    )
+    if hand[12].y < hand[10].y:
+        fingers_up += 1
 
-    middle_extended = (
-        distance(middle_tip, wrist)
-        >
-        distance(middle_pip, wrist) * 1.12
-    )
 
-    ring_extended = (
-        distance(ring_tip, wrist)
-        >
-        distance(ring_pip, wrist) * 1.12
-    )
+    # Ring
 
-    little_extended = (
-        distance(little_tip, wrist)
-        >
-        distance(little_pip, wrist) * 1.12
-    )
+    if hand[16].y < hand[14].y:
+        fingers_up += 1
 
-    # --------------------------------------------------------
-    # OPEN PALM
-    # --------------------------------------------------------
 
-    if (
-        index_extended
-        and middle_extended
-        and ring_extended
-        and little_extended
-    ):
+    # Little
+
+    if hand[20].y < hand[18].y:
+        fingers_up += 1
+
+
+    # Gesture mapping
+
+    if fingers_up == 0:
 
         return "STOP"
 
-    # --------------------------------------------------------
-    # INDEX FINGER ONLY
-    # --------------------------------------------------------
+    elif fingers_up == 1:
 
-    if (
-        index_extended
-        and not middle_extended
-        and not ring_extended
-        and not little_extended
-    ):
+        return "FORWARD"
 
-        dx = index_tip.x - index_mcp.x
-        dy = index_tip.y - index_mcp.y
+    elif fingers_up == 2:
 
-        # Vertical movement
-        if abs(dy) > abs(dx):
+        return "BACKWARD"
 
-            if dy < -0.08:
-                return "FORWARD"
+    elif fingers_up == 3:
 
-            elif dy > 0.08:
-                return "BACKWARD"
+        return "LEFT"
 
-        # Horizontal movement
-        else:
+    elif fingers_up == 4:
 
-            if dx < -0.08:
-                return "LEFT"
+        return "RIGHT"
 
-            elif dx > 0.08:
-                return "RIGHT"
 
-    return "UNKNOWN"
+    return "STOP"
 
 
 # ============================================================
-# COMMAND INFORMATION
+# MEDIAPIPE
 # ============================================================
 
-COMMAND_INFO = {
+BaseOptions = mp.tasks.BaseOptions
 
-    "FORWARD": {
-        "icon": "⬆️",
-        "description": "Robot moving forward"
-    },
+HandLandmarker = mp.tasks.vision.HandLandmarker
 
-    "BACKWARD": {
-        "icon": "⬇️",
-        "description": "Robot moving backward"
-    },
+HandLandmarkerOptions = (
+    mp.tasks.vision.HandLandmarkerOptions
+)
 
-    "LEFT": {
-        "icon": "⬅️",
-        "description": "Robot turning left"
-    },
+VisionRunningMode = (
+    mp.tasks.vision.RunningMode
+)
 
-    "RIGHT": {
-        "icon": "➡️",
-        "description": "Robot turning right"
-    },
 
-    "STOP": {
-        "icon": "🛑",
-        "description": "Robot stopped"
-    },
+options = HandLandmarkerOptions(
 
-    "UNKNOWN": {
-        "icon": "❔",
-        "description": "Gesture not recognized"
-    }
-}
+    base_options=BaseOptions(
+
+        model_asset_path="models/hand_landmarker.task"
+    ),
+
+    running_mode=VisionRunningMode.IMAGE,
+
+    num_hands=1
+)
 
 
 # ============================================================
 # VIDEO PROCESSOR
 # ============================================================
 
-class VideoProcessor(VideoProcessorBase):
+class VideoProcessor:
 
     def __init__(self):
 
-        self.model_path = "models/hand_landmarker.task"
-
-        options = HandLandmarkerOptions(
-
-            base_options=BaseOptions(
-                model_asset_path=self.model_path
-            ),
-
-            running_mode=VisionRunningMode.IMAGE,
-
-            num_hands=1
+        self.landmarker = (
+            HandLandmarker.create_from_options(
+                options
+            )
         )
 
-        self.landmarker = HandLandmarker.create_from_options(
-            options
-        )
-
-        self.gesture = "STOP"
-
-        self.last_time = time.time()
-
-        self.fps = 0
-
-    # --------------------------------------------------------
-    # PROCESS FRAME
-    # --------------------------------------------------------
 
     def recv(self, frame):
 
-        img = frame.to_ndarray(format="bgr24")
+        # ----------------------------------------------------
+        # Convert frame
+        # ----------------------------------------------------
 
-        # Mirror camera
-        img = cv2.flip(img, 1)
+        img = frame.to_ndarray(
+            format="bgr24"
+        )
 
-        rgb = cv2.cvtColor(
+
+        # ----------------------------------------------------
+        # Mirror
+        # ----------------------------------------------------
+
+        if st.session_state.get(
+            "mirror_camera",
+            True
+        ):
+
+            img = cv2.flip(
+                img,
+                1
+            )
+
+
+        # ----------------------------------------------------
+        # BGR -> RGB
+        # ----------------------------------------------------
+
+        rgb_img = cv2.cvtColor(
             img,
             cv2.COLOR_BGR2RGB
         )
 
-        mp_image = mp.Image(
-            image_format=mp.ImageFormat.SRGB,
-            data=rgb
-        )
-
-        result = self.landmarker.detect(mp_image)
-
-        detected_gesture = "UNKNOWN"
 
         # ----------------------------------------------------
-        # HAND DETECTION
+        # MediaPipe image
+        # ----------------------------------------------------
+
+        mp_image = mp.Image(
+
+            image_format=mp.ImageFormat.SRGB,
+
+            data=rgb_img
+        )
+
+
+        # ----------------------------------------------------
+        # Detect
+        # ----------------------------------------------------
+
+        result = self.landmarker.detect(
+            mp_image
+        )
+
+
+        gesture = "NO HAND"
+
+
+        # ----------------------------------------------------
+        # Hand detected
         # ----------------------------------------------------
 
         if result.hand_landmarks:
 
             hand = result.hand_landmarks[0]
 
-            height, width, _ = img.shape
+
+            # Recognize gesture
+
+            gesture = recognize_gesture(
+                hand
+            )
+
+
+            # Send command
+
+            command_state.set_command(
+                gesture
+            )
+
 
             # Draw landmarks
-            for landmark in hand:
 
-                x = int(landmark.x * width)
+            if st.session_state.get(
+                "show_landmarks",
+                True
+            ):
 
-                y = int(landmark.y * height)
+                height, width, _ = img.shape
 
-                cv2.circle(
-                    img,
-                    (x, y),
-                    5,
-                    (0, 255, 0),
-                    -1
-                )
 
-            # Draw connections manually
-            connections = [
+                for landmark in hand:
 
-                (0, 1), (1, 2), (2, 3), (3, 4),
+                    x = int(
+                        landmark.x * width
+                    )
 
-                (0, 5), (5, 6), (6, 7), (7, 8),
+                    y = int(
+                        landmark.y * height
+                    )
 
-                (0, 9), (9, 10), (10, 11), (11, 12),
 
-                (0, 13), (13, 14), (14, 15), (15, 16),
+                    cv2.circle(
 
-                (0, 17), (17, 18), (18, 19), (19, 20),
+                        img,
 
-                (5, 9), (9, 13), (13, 17)
+                        (x, y),
 
-            ]
+                        5,
 
-            for start, end in connections:
+                        (0, 255, 0),
 
-                x1 = int(hand[start].x * width)
-                y1 = int(hand[start].y * height)
+                        -1
+                    )
 
-                x2 = int(hand[end].x * width)
-                y2 = int(hand[end].y * height)
-
-                cv2.line(
-                    img,
-                    (x1, y1),
-                    (x2, y2),
-                    (0, 255, 0),
-                    2
-                )
-
-            detected_gesture = recognize_gesture(hand)
 
         else:
 
-            detected_gesture = "STOP"
+            # Safety
 
-        # ----------------------------------------------------
-        # EMERGENCY STOP
-        # ----------------------------------------------------
-
-        if st.session_state.get("emergency_stop", False):
-
-            detected_gesture = "STOP"
-
-        self.gesture = detected_gesture
-
-        # ----------------------------------------------------
-        # ROBOT MOVEMENT
-        # ----------------------------------------------------
-
-        if detected_gesture == "FORWARD":
-
-            st.session_state.robot_y -= 3
-
-        elif detected_gesture == "BACKWARD":
-
-            st.session_state.robot_y += 3
-
-        elif detected_gesture == "LEFT":
-
-            st.session_state.robot_x -= 3
-
-        elif detected_gesture == "RIGHT":
-
-            st.session_state.robot_x += 3
-
-        # ----------------------------------------------------
-        # ROBOT BOUNDARIES
-        # ----------------------------------------------------
-
-        st.session_state.robot_x = max(
-            80,
-            min(
-                st.session_state.robot_x,
-                width - 80
+            command_state.set_command(
+                "STOP"
             )
-        )
 
-        st.session_state.robot_y = max(
-            80,
-            min(
-                st.session_state.robot_y,
-                height - 80
-            )
-        )
 
         # ----------------------------------------------------
-        # FPS
+        # Command color
         # ----------------------------------------------------
 
-        current_time = time.time()
+        if gesture == "FORWARD":
 
-        elapsed = current_time - self.last_time
+            command_color = (0, 255, 0)
 
-        if elapsed > 0:
+        elif gesture == "BACKWARD":
 
-            self.fps = int(1 / elapsed)
+            command_color = (0, 200, 255)
 
-        self.last_time = current_time
+        elif gesture == "LEFT":
+
+            command_color = (255, 200, 0)
+
+        elif gesture == "RIGHT":
+
+            command_color = (255, 0, 255)
+
+        else:
+
+            command_color = (0, 0, 255)
+
 
         # ----------------------------------------------------
-        # CAMERA COMMAND DISPLAY
+        # Command box
         # ----------------------------------------------------
 
-        command_info = COMMAND_INFO.get(
-            detected_gesture,
-            COMMAND_INFO["UNKNOWN"]
+        cv2.rectangle(
+
+            img,
+
+            (15, 15),
+
+            (440, 90),
+
+            (10, 15, 25),
+
+            -1
         )
 
-        text = (
-            f"{command_info['icon']} "
-            f"{detected_gesture}"
-        )
 
         cv2.putText(
-            img,
-            text,
-            (20, 45),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1.1,
-            (0, 255, 0),
-            3
-        )
 
-        # FPS
-        cv2.putText(
             img,
-            f"FPS: {self.fps}",
-            (20, 80),
+
+            "COMMAND",
+
+            (30, 45),
+
             cv2.FONT_HERSHEY_SIMPLEX,
-            0.7,
-            (255, 255, 255),
+
+            0.65,
+
+            (180, 190, 200),
+
             2
         )
 
-        return frame.from_ndarray(
+
+        cv2.putText(
+
             img,
+
+            gesture,
+
+            (170, 67),
+
+            cv2.FONT_HERSHEY_SIMPLEX,
+
+            0.85,
+
+            command_color,
+
+            3
+        )
+
+
+        # ----------------------------------------------------
+        # Return
+        # ----------------------------------------------------
+
+        return av.VideoFrame.from_ndarray(
+
+            img,
+
             format="bgr24"
         )
 
 
 # ============================================================
-# ROBOT DRAWING
+# ROBOT MOVEMENT
 # ============================================================
 
-def draw_robot():
+def move_robot(command):
 
-    width = 700
-    height = 450
+    if st.session_state.emergency_stop:
 
-    robot_x = int(st.session_state.robot_x)
-    robot_y = int(st.session_state.robot_y)
+        return
 
-    canvas = (
-        15 *
-        __import__("numpy").ones(
-            (height, width, 3),
-            dtype="uint8"
+
+    speed = st.session_state.robot_speed
+
+
+    old_x = st.session_state.robot_x
+
+    old_y = st.session_state.robot_y
+
+
+    if command == "FORWARD":
+
+        st.session_state.robot_y -= speed
+
+
+    elif command == "BACKWARD":
+
+        st.session_state.robot_y += speed
+
+
+    elif command == "LEFT":
+
+        st.session_state.robot_x -= speed
+
+
+    elif command == "RIGHT":
+
+        st.session_state.robot_x += speed
+
+
+    # --------------------------------------------------------
+    # Boundary
+    # --------------------------------------------------------
+
+    st.session_state.robot_x = max(
+
+        8,
+
+        min(
+            92,
+            st.session_state.robot_x
         )
     )
 
-    canvas = canvas.astype("uint8")
 
-    # Background
-    canvas[:] = (20, 25, 35)
+    st.session_state.robot_y = max(
 
-    # Grid
-    for x in range(0, width, 50):
+        10,
 
-        cv2.line(
-            canvas,
-            (x, 0),
-            (x, height),
-            (45, 50, 60),
+        min(
+            90,
+            st.session_state.robot_y
+        )
+    )
+
+
+    # --------------------------------------------------------
+    # Add path point only when moving
+    # --------------------------------------------------------
+
+    if command in [
+
+        "FORWARD",
+
+        "BACKWARD",
+
+        "LEFT",
+
+        "RIGHT"
+
+    ]:
+
+        if (
+
+            old_x != st.session_state.robot_x
+
+            or
+
+            old_y != st.session_state.robot_y
+
+        ):
+
+            st.session_state.robot_path.append(
+
+                (
+                    st.session_state.robot_x,
+
+                    st.session_state.robot_y
+                )
+            )
+
+
+    # Keep path small
+
+    if len(
+        st.session_state.robot_path
+    ) > 100:
+
+        st.session_state.robot_path = (
+            st.session_state.robot_path[-100:]
+        )
+
+
+# ============================================================
+# COMMAND HISTORY
+# ============================================================
+
+def record_command(command):
+
+    if command == "NO HAND":
+
+        return
+
+
+    # Only record when command changes
+
+    if (
+        st.session_state.last_recorded_command
+        == command
+    ):
+
+        return
+
+
+    st.session_state.last_recorded_command = command
+
+
+    st.session_state.total_commands += 1
+
+
+    st.session_state.gesture_counts[
+        command
+    ] += 1
+
+
+    now = datetime.now().strftime(
+        "%H:%M:%S"
+    )
+
+
+    st.session_state.history.append({
+
+        "Time": now,
+
+        "Command": command,
+
+        "X": round(
+            st.session_state.robot_x,
+            1
+        ),
+
+        "Y": round(
+            st.session_state.robot_y,
             1
         )
+    })
 
-    for y in range(0, height, 50):
 
-        cv2.line(
-            canvas,
-            (0, y),
-            (width, y),
-            (45, 50, 60),
-            1
+    # Keep latest 100
+
+    if len(
+        st.session_state.history
+    ) > 100:
+
+        st.session_state.history = (
+            st.session_state.history[-100:]
         )
-
-    # Robot body
-    cv2.rectangle(
-        canvas,
-        (robot_x - 45, robot_y - 35),
-        (robot_x + 45, robot_y + 35),
-        (60, 130, 220),
-        -1
-    )
-
-    # Robot head
-    cv2.rectangle(
-        canvas,
-        (robot_x - 35, robot_y - 75),
-        (robot_x + 35, robot_y - 35),
-        (80, 150, 230),
-        -1
-    )
-
-    # Eyes
-    cv2.circle(
-        canvas,
-        (robot_x - 15, robot_y - 55),
-        6,
-        (255, 255, 255),
-        -1
-    )
-
-    cv2.circle(
-        canvas,
-        (robot_x + 15, robot_y - 55),
-        6,
-        (255, 255, 255),
-        -1
-    )
-
-    # Wheels
-    cv2.circle(
-        canvas,
-        (robot_x - 45, robot_y + 45),
-        14,
-        (100, 100, 100),
-        -1
-    )
-
-    cv2.circle(
-        canvas,
-        (robot_x + 45, robot_y + 45),
-        14,
-        (100, 100, 100),
-        -1
-    )
-
-    # Antenna
-    cv2.line(
-        canvas,
-        (robot_x, robot_y - 75),
-        (robot_x, robot_y - 100),
-        (200, 200, 200),
-        3
-    )
-
-    cv2.circle(
-        canvas,
-        (robot_x, robot_y - 105),
-        6,
-        (0, 255, 0),
-        -1
-    )
-
-    # Current command
-    command = st.session_state.current_command
-
-    cv2.putText(
-        canvas,
-        f"COMMAND: {command}",
-        (20, 35),
-        cv2.FONT_HERSHEY_SIMPLEX,
-        0.8,
-        (255, 255, 255),
-        2
-    )
-
-    return canvas
 
 
 # ============================================================
-# DASHBOARD PAGE
+# ROBOT DISPLAY
 # ============================================================
 
-if page == "Dashboard":
+def display_robot():
 
-    st.markdown(
-        '<div class="main-title">🤖 Vision Robot Control</div>',
-        unsafe_allow_html=True
+    x = st.session_state.robot_x
+
+    y = st.session_state.robot_y
+
+
+    # --------------------------------------------------------
+    # Path SVG
+    # --------------------------------------------------------
+
+    path_svg = ""
+
+
+    path = st.session_state.robot_path
+
+
+    if len(path) >= 2:
+
+        points = " ".join(
+
+            f"{px},{py}"
+
+            for px, py in path
+        )
+
+
+        path_svg = f"""
+
+        <polyline
+
+            points="{points}"
+
+            fill="none"
+
+            stroke="#38bdf8"
+
+            stroke-width="0.7"
+
+            stroke-dasharray="2,2"
+
+            opacity="0.7"
+
+        />
+
+        """
+
+
+    # --------------------------------------------------------
+    # Direction
+    # --------------------------------------------------------
+
+    command = command_state.get_command()
+
+
+    if command == "FORWARD":
+
+        arrow = """
+        <polygon
+            points="50,8 46,15 54,15"
+            fill="#22c55e"
+        />
+        """
+
+    elif command == "BACKWARD":
+
+        arrow = """
+        <polygon
+            points="50,92 46,85 54,85"
+            fill="#f59e0b"
+        />
+        """
+
+    elif command == "LEFT":
+
+        arrow = """
+        <polygon
+            points="8,50 15,46 15,54"
+            fill="#38bdf8"
+        />
+        """
+
+    elif command == "RIGHT":
+
+        arrow = """
+        <polygon
+            points="92,50 85,46 85,54"
+            fill="#a78bfa"
+        />
+        """
+
+    else:
+
+        arrow = ""
+
+
+    # --------------------------------------------------------
+    # Emergency overlay
+    # --------------------------------------------------------
+
+    emergency = ""
+
+
+    if st.session_state.emergency_stop:
+
+        emergency = """
+
+        <rect
+            x="1"
+            y="1"
+            width="98"
+            height="98"
+            rx="3"
+            fill="#7f1d1d"
+            opacity="0.35"
+        />
+
+        <text
+            x="50"
+            y="48"
+            text-anchor="middle"
+            fill="#fecaca"
+            font-size="6"
+            font-weight="bold"
+        >
+            EMERGENCY STOP
+        </text>
+
+        """
+
+
+    # --------------------------------------------------------
+    # SVG
+    # --------------------------------------------------------
+
+    svg = f"""
+
+    <svg
+
+        viewBox="0 0 100 100"
+
+        xmlns="http://www.w3.org/2000/svg"
+
+        style="
+
+            width:100%;
+
+            height:430px;
+
+            background:#0f172a;
+
+            border:2px solid #334155;
+
+            border-radius:16px;
+
+        "
+    >
+
+
+        <!-- GRID -->
+
+        <defs>
+
+            <pattern
+
+                id="grid"
+
+                width="10"
+
+                height="10"
+
+                patternUnits="userSpaceOnUse"
+
+            >
+
+                <path
+
+                    d="M 10 0 L 0 0 0 10"
+
+                    fill="none"
+
+                    stroke="#1e293b"
+
+                    stroke-width="0.5"
+
+                />
+
+            </pattern>
+
+        </defs>
+
+
+        <rect
+
+            width="100"
+
+            height="100"
+
+            fill="url(#grid)"
+
+        />
+
+
+        <!-- PATH -->
+
+        {path_svg}
+
+
+        <!-- START -->
+
+        <circle
+            cx="7"
+            cy="92"
+            r="2"
+            fill="#22c55e"
+        />
+
+
+        <text
+            x="11"
+            y="94"
+            fill="#94a3b8"
+            font-size="3.5"
+        >
+            START
+        </text>
+
+
+        <!-- ROBOT -->
+
+        <g transform="translate({x},{y})">
+
+
+            <!-- Shadow -->
+
+            <ellipse
+
+                cx="0"
+
+                cy="9"
+
+                rx="10"
+
+                ry="3"
+
+                fill="#000000"
+
+                opacity="0.35"
+
+            />
+
+
+            <!-- Wheels -->
+
+            <rect
+
+                x="-10"
+
+                y="-1"
+
+                width="4"
+
+                height="10"
+
+                rx="1"
+
+                fill="#020617"
+
+            />
+
+
+            <rect
+
+                x="6"
+
+                y="-1"
+
+                width="4"
+
+                height="10"
+
+                rx="1"
+
+                fill="#020617"
+
+            />
+
+
+            <!-- Body -->
+
+            <rect
+
+                x="-7"
+
+                y="-6"
+
+                width="14"
+
+                height="14"
+
+                rx="3"
+
+                fill="#2563eb"
+
+                stroke="#60a5fa"
+
+                stroke-width="1"
+
+            />
+
+
+            <!-- Head -->
+
+            <rect
+
+                x="-6"
+
+                y="-13"
+
+                width="12"
+
+                height="7"
+
+                rx="2"
+
+                fill="#3b82f6"
+
+                stroke="#93c5fd"
+
+                stroke-width="0.8"
+
+            />
+
+
+            <!-- Eyes -->
+
+            <circle
+
+                cx="-2.5"
+
+                cy="-9.5"
+
+                r="1"
+
+                fill="#ffffff"
+
+            />
+
+
+            <circle
+
+                cx="2.5"
+
+                cy="-9.5"
+
+                r="1"
+
+                fill="#ffffff"
+
+            />
+
+
+            <!-- Antenna -->
+
+            <line
+
+                x1="0"
+
+                y1="-13"
+
+                x2="0"
+
+                y2="-17"
+
+                stroke="#94a3b8"
+
+                stroke-width="0.8"
+
+            />
+
+
+            <circle
+
+                cx="0"
+
+                cy="-18"
+
+                r="1.3"
+
+                fill="#22c55e"
+
+            />
+
+
+        </g>
+
+
+        <!-- DIRECTION -->
+
+        {arrow}
+
+
+        <!-- EMERGENCY -->
+
+        {emergency}
+
+
+        <!-- BORDER -->
+
+        <rect
+
+            x="1"
+
+            y="1"
+
+            width="98"
+
+            height="98"
+
+            rx="3"
+
+            fill="none"
+
+            stroke="#475569"
+
+            stroke-width="0.5"
+
+        />
+
+
+    </svg>
+
+    """
+
+
+    components.html(
+
+        svg,
+
+        height=450
     )
 
-    st.markdown(
-        '<div class="main-subtitle">'
-        'Real-time hand gesture controlled virtual robot'
-        '</div>',
-        unsafe_allow_html=True
-    )
 
-    # --------------------------------------------------------
-    # TOP STATUS CARDS
-    # --------------------------------------------------------
+# ============================================================
+# SIDEBAR
+# ============================================================
 
-    col1, col2, col3, col4 = st.columns(4)
-
-    with col1:
-
-        st.markdown(
-            """
-            <div class="card">
-                <div class="card-title">SYSTEM STATUS</div>
-                <div class="card-value">
-                    🟢 ACTIVE
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    with col2:
-
-        st.markdown(
-            """
-            <div class="card">
-                <div class="card-title">CAMERA</div>
-                <div class="card-value">
-                    📷 READY
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    with col3:
-
-        st.markdown(
-            """
-            <div class="card">
-                <div class="card-title">HAND TRACKING</div>
-                <div class="card-value">
-                    🖐️ READY
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-    with col4:
-
-        st.markdown(
-            """
-            <div class="card">
-                <div class="card-title">CONTROL MODE</div>
-                <div class="card-value">
-                    🎮 GESTURE
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+with st.sidebar:
 
     st.markdown(
-        '<div class="section-title">🎮 Live Robot Control</div>',
-        unsafe_allow_html=True
+        "## 🤖 HandGestureRobot"
     )
 
-    # --------------------------------------------------------
-    # CAMERA + COMMAND
-    # --------------------------------------------------------
+    st.caption(
+        "Vision-Based Real-Time Robot Control"
+    )
 
-    camera_col, command_col = st.columns([2, 1])
+
+    st.divider()
+
+
+    # User
+
+    st.markdown(
+        "### 👤 Account"
+    )
+
+
+    st.write(
+        st.session_state.get(
+            "user_name",
+            "User"
+        )
+    )
+
+
+    st.caption(
+        st.session_state.get(
+            "user_email",
+            ""
+        )
+    )
+
+
+    st.divider()
+
+
+    # Navigation
+
+    page = st.radio(
+
+        "Navigation",
+
+        [
+
+            "🏠 Dashboard",
+
+            "📷 Live Control",
+
+            "🤖 Robot",
+
+            "📊 Analytics",
+
+            "📜 History",
+
+            "⚙️ Settings"
+
+        ]
+    )
+
+
+    st.divider()
+
+
+    # Emergency
+
+    if st.button(
+
+        "🚨 EMERGENCY STOP",
+
+        use_container_width=True
+    ):
+
+        st.session_state.emergency_stop = True
+
+        command_state.set_command(
+            "STOP"
+        )
+
+        st.rerun()
+
+
+    if st.session_state.emergency_stop:
+
+        if st.button(
+
+            "▶️ RESUME ROBOT",
+
+            use_container_width=True
+        ):
+
+            st.session_state.emergency_stop = False
+
+            command_state.set_command(
+                "STOP"
+            )
+
+            st.rerun()
+
+
+    st.divider()
+
+
+    if st.button(
+
+        "🚪 Logout",
+
+        use_container_width=True
+    ):
+
+        logout()
+
+
+# ============================================================
+# DASHBOARD
+# ============================================================
+
+if page == "🏠 Dashboard":
+
+    st.title(
+        "🏠 Control Dashboard"
+    )
+
+
+    st.markdown(
+        """
+        ### Welcome to HandGestureRobot 👋
+
+        A real-time computer vision system that uses hand gestures
+        to control a virtual robot.
+        """
+    )
+
+
+    st.divider()
+
+
+    # Metrics
+
+    command = command_state.get_command()
+
+
+    m1, m2, m3, m4 = st.columns(4)
+
+
+    with m1:
+
+        st.metric(
+            "Current Command",
+            command
+        )
+
+
+    with m2:
+
+        st.metric(
+            "Commands",
+            st.session_state.total_commands
+        )
+
+
+    with m3:
+
+        st.metric(
+            "Robot X",
+            f"{st.session_state.robot_x:.0f}%"
+        )
+
+
+    with m4:
+
+        st.metric(
+            "Robot Y",
+            f"{st.session_state.robot_y:.0f}%"
+        )
+
+
+    st.divider()
+
+
+    # Status
+
+    st.subheader(
+        "📡 System Status"
+    )
+
+
+    a, b, c = st.columns(3)
+
+
+    with a:
+
+        st.success(
+            "🟢 MediaPipe Ready"
+        )
+
+
+    with b:
+
+        st.success(
+            "🟢 Gesture Recognition Ready"
+        )
+
+
+    with c:
+
+        if st.session_state.emergency_stop:
+
+            st.error(
+                "🔴 Emergency Stop"
+            )
+
+        else:
+
+            st.success(
+                "🟢 Robot Ready"
+            )
+
+
+    st.divider()
+
+
+    # Gesture guide
+
+    st.subheader(
+        "🎮 Gesture Control"
+    )
+
+
+    g1, g2, g3, g4, g5 = st.columns(5)
+
+
+    with g1:
+
+        st.markdown(
+            "### ☝️\n**FORWARD**\n\n1 Finger"
+        )
+
+
+    with g2:
+
+        st.markdown(
+            "### ✌️\n**BACKWARD**\n\n2 Fingers"
+        )
+
+
+    with g3:
+
+        st.markdown(
+            "### 🤟\n**LEFT**\n\n3 Fingers"
+        )
+
+
+    with g4:
+
+        st.markdown(
+            "### 🖐️\n**RIGHT**\n\n4 Fingers"
+        )
+
+
+    with g5:
+
+        st.markdown(
+            "### ✊\n**STOP**\n\n0 Fingers"
+        )
+
+
+# ============================================================
+# LIVE CONTROL
+# ============================================================
+
+elif page == "📷 Live Control":
+
+    st.title(
+        "📷 Live Robot Control"
+    )
+
+
+    st.caption(
+        "Show your hand to the camera and control the virtual robot."
+    )
+
+
+    # ========================================================
+    # MAIN SPLIT SCREEN
+    # ========================================================
+
+    camera_col, robot_col = st.columns(
+        [1, 1],
+        gap="large"
+    )
+
+
+    # --------------------------------------------------------
+    # CAMERA
+    # --------------------------------------------------------
 
     with camera_col:
 
-        st.markdown("### 📷 Camera")
+        st.subheader(
+            "📷 Live Camera"
+        )
 
-        webrtc_ctx = webrtc_streamer(
 
-            key="robot-camera",
+        st.caption(
+            "Hand detection + gesture recognition"
+        )
+
+
+        webrtc_streamer(
+
+            key="main-live-camera",
 
             video_processor_factory=VideoProcessor,
 
             media_stream_constraints={
+
                 "video": True,
+
                 "audio": False
             },
 
             async_processing=True
         )
 
-    with command_col:
 
-        command = st.session_state.current_command
+        # Current command
 
-        info = COMMAND_INFO.get(
-            command,
-            COMMAND_INFO["UNKNOWN"]
-        )
+        current = command_state.get_command()
+
 
         st.markdown(
             f"""
             <div class="command-card">
 
-                <div class="command-label">
-                    CURRENT ROBOT COMMAND
-                </div>
+            <div class="small-text">
+            DETECTED COMMAND
+            </div>
 
-                <div class="command-value">
-                    {info["icon"]} {command}
-                </div>
-
-                <div class="command-description">
-                    {info["description"]}
-                </div>
+            <h2>{current}</h2>
 
             </div>
             """,
             unsafe_allow_html=True
         )
 
-        st.write("")
-
-        if st.button(
-            "🛑 EMERGENCY STOP",
-            use_container_width=True,
-            type="primary"
-        ):
-
-            st.session_state.emergency_stop = True
-
-            st.session_state.current_command = "STOP"
-
-            st.rerun()
-
-        if st.button(
-            "▶️ Resume Control",
-            use_container_width=True
-        ):
-
-            st.session_state.emergency_stop = False
-
-            st.rerun()
 
     # --------------------------------------------------------
-    # VIRTUAL ROBOT
+    # ROBOT
     # --------------------------------------------------------
-
-    st.markdown(
-        '<div class="section-title">🤖 Virtual Robot</div>',
-        unsafe_allow_html=True
-    )
-
-    robot_col, control_col = st.columns([2, 1])
 
     with robot_col:
 
-        robot_image = draw_robot()
-
-        st.image(
-            robot_image,
-            use_container_width=True
+        st.subheader(
+            "🤖 Virtual Robot"
         )
 
-    with control_col:
 
-        st.markdown("### Robot Status")
+        st.caption(
+            "Real-time robot simulation"
+        )
 
-        if st.session_state.emergency_stop:
 
-            st.error("🛑 EMERGENCY STOP ACTIVE")
+        robot_placeholder = st.empty()
 
-        else:
 
-            st.success("🟢 ROBOT ACTIVE")
+        @st.fragment(run_every="200ms")
+        def live_robot():
+
+            current_command = (
+                command_state.get_command()
+            )
+
+
+            # Move
+
+            move_robot(
+                current_command
+            )
+
+
+            # History
+
+            record_command(
+                current_command
+            )
+
+
+            # Robot
+
+            with robot_placeholder:
+
+                display_robot()
+
+
+            # ------------------------------------------------
+            # Status
+            # ------------------------------------------------
+
+            if st.session_state.emergency_stop:
+
+                st.error(
+                    "🚨 EMERGENCY STOP ACTIVE"
+                )
+
+            else:
+
+                if current_command == "FORWARD":
+
+                    st.success(
+                        "⬆️ Moving Forward"
+                    )
+
+                elif current_command == "BACKWARD":
+
+                    st.warning(
+                        "⬇️ Moving Backward"
+                    )
+
+                elif current_command == "LEFT":
+
+                    st.info(
+                        "⬅️ Moving Left"
+                    )
+
+                elif current_command == "RIGHT":
+
+                    st.info(
+                        "➡️ Moving Right"
+                    )
+
+                else:
+
+                    st.info(
+                        "✋ Robot Stopped"
+                    )
+
+
+        live_robot()
+
+
+    # ========================================================
+    # CONTROL INFORMATION
+    # ========================================================
+
+    st.divider()
+
+
+    p1, p2, p3, p4 = st.columns(4)
+
+
+    with p1:
 
         st.metric(
             "X Position",
-            int(st.session_state.robot_x)
+            f"{st.session_state.robot_x:.1f}%"
         )
+
+
+    with p2:
 
         st.metric(
             "Y Position",
-            int(st.session_state.robot_y)
+            f"{st.session_state.robot_y:.1f}%"
         )
 
-        if st.button(
-            "🔄 Reset Robot Position",
-            use_container_width=True
-        ):
 
-            st.session_state.robot_x = 300
-            st.session_state.robot_y = 250
+    with p3:
 
-            st.rerun()
+        st.metric(
+            "Speed",
+            f"{st.session_state.robot_speed:.1f}"
+        )
 
 
-# ============================================================
-# LIVE CONTROL PAGE
-# ============================================================
+    with p4:
 
-elif page == "Live Control":
+        st.metric(
+            "Commands",
+            st.session_state.total_commands
+        )
 
-    st.markdown(
-        '<div class="main-title">📷 Live Control</div>',
-        unsafe_allow_html=True
-    )
 
-    st.markdown(
-        '<div class="main-subtitle">'
-        'Control the virtual robot using hand gestures'
-        '</div>',
-        unsafe_allow_html=True
-    )
+    # Reset
 
-    webrtc_streamer(
+    if st.button(
+        "🔄 Reset Robot",
+        use_container_width=True
+    ):
 
-        key="live-control-camera",
+        st.session_state.robot_x = 50
 
-        video_processor_factory=VideoProcessor,
+        st.session_state.robot_y = 50
 
-        media_stream_constraints={
-            "video": True,
-            "audio": False
-        },
+        st.session_state.robot_path = []
 
-        async_processing=True
-    )
+        st.session_state.emergency_stop = False
 
-    st.info(
-        "☝️ Forward   |   👇 Backward   |   👈 Left   |   👉 Right   |   ✋ Stop"
-    )
+        command_state.set_command(
+            "STOP"
+        )
+
+        st.session_state.last_recorded_command = None
+
+        st.rerun()
 
 
 # ============================================================
 # ROBOT PAGE
 # ============================================================
 
-elif page == "Robot":
+elif page == "🤖 Robot":
 
-    st.markdown(
-        '<div class="main-title">🤖 Robot</div>',
-        unsafe_allow_html=True
+    st.title(
+        "🤖 Robot Simulator"
     )
 
-    st.markdown(
-        '<div class="main-subtitle">'
-        'Virtual robot monitoring and control'
-        '</div>',
-        unsafe_allow_html=True
+
+    st.caption(
+        "Detailed virtual robot simulation."
     )
 
-    col1, col2 = st.columns([2, 1])
 
-    with col1:
+    placeholder = st.empty()
 
-        st.image(
-            draw_robot(),
-            use_container_width=True
+
+    @st.fragment(run_every="200ms")
+    def robot_page():
+
+        command = command_state.get_command()
+
+
+        move_robot(
+            command
         )
 
-    with col2:
 
-        st.markdown("### Robot Information")
+        with placeholder:
+
+            display_robot()
+
+
+        st.markdown(
+            f"### Current Command: `{command}`"
+        )
+
+
+    robot_page()
+
+
+# ============================================================
+# ANALYTICS
+# ============================================================
+
+elif page == "📊 Analytics":
+
+    st.title(
+        "📊 Gesture Analytics"
+    )
+
+
+    counts = st.session_state.gesture_counts
+
+
+    total = st.session_state.total_commands
+
+
+    if total > 0:
+
+        most_used = max(
+            counts,
+            key=counts.get
+        )
+
+    else:
+
+        most_used = "NONE"
+
+
+    a1, a2, a3 = st.columns(3)
+
+
+    with a1:
+
+        st.metric(
+            "Total Commands",
+            total
+        )
+
+
+    with a2:
+
+        st.metric(
+            "Most Used",
+            most_used
+        )
+
+
+    with a3:
+
+        st.metric(
+            "Robot Position",
+            f"{st.session_state.robot_x:.0f}% , "
+            f"{st.session_state.robot_y:.0f}%"
+        )
+
+
+    st.divider()
+
+
+    st.subheader(
+        "📈 Gesture Frequency"
+    )
+
+
+    st.bar_chart(
+        counts
+    )
+
+
+    st.divider()
+
+
+    st.subheader(
+        "Command Statistics"
+    )
+
+
+    for command, count in counts.items():
 
         st.write(
-            f"**X Position:** {int(st.session_state.robot_x)}"
+            f"**{command}** : {count}"
         )
 
-        st.write(
-            f"**Y Position:** {int(st.session_state.robot_y)}"
+
+# ============================================================
+# HISTORY
+# ============================================================
+
+elif page == "📜 History":
+
+    st.title(
+        "📜 Command History"
+    )
+
+
+    st.caption(
+        "Recent gesture commands detected by the system."
+    )
+
+
+    if not st.session_state.history:
+
+        st.info(
+            "No command history yet. Start the Live Control camera."
         )
 
-        st.write(
-            f"**Command:** {st.session_state.current_command}"
+    else:
+
+        data = list(
+            reversed(
+                st.session_state.history
+            )
         )
 
-        if st.session_state.emergency_stop:
 
-            st.error("Emergency Stop Active")
+        st.dataframe(
 
-        else:
+            data,
 
-            st.success("Robot Operational")
+            use_container_width=True,
+
+            hide_index=True
+        )
+
+
+        st.divider()
+
 
         if st.button(
-            "🔄 Reset Robot",
-            use_container_width=True
+            "🗑️ Clear History"
         ):
 
-            st.session_state.robot_x = 300
-            st.session_state.robot_y = 250
+            st.session_state.history = []
+
+            st.session_state.gesture_counts = {
+
+                "FORWARD": 0,
+
+                "BACKWARD": 0,
+
+                "LEFT": 0,
+
+                "RIGHT": 0,
+
+                "STOP": 0
+            }
+
+            st.session_state.total_commands = 0
+
+            st.session_state.last_recorded_command = None
 
             st.rerun()
 
 
 # ============================================================
-# ANALYTICS PAGE
+# SETTINGS
 # ============================================================
 
-elif page == "Analytics":
+elif page == "⚙️ Settings":
 
-    st.markdown(
-        '<div class="main-title">📊 Analytics</div>',
-        unsafe_allow_html=True
-    )
-
-    st.markdown(
-        '<div class="main-subtitle">'
-        'Robot control system statistics'
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-
-        st.metric(
-            "Commands",
-            len(st.session_state.command_history)
-        )
-
-    with col2:
-
-        st.metric(
-            "Current Command",
-            st.session_state.current_command
-        )
-
-    with col3:
-
-        st.metric(
-            "Robot Status",
-            "STOPPED"
-            if st.session_state.emergency_stop
-            else "ACTIVE"
-        )
-
-    st.markdown("### Gesture Classes")
-
-    st.write(
-        """
-        The system currently recognizes:
-
-        - ☝️ FORWARD
-        - 👇 BACKWARD
-        - 👈 LEFT
-        - 👉 RIGHT
-        - ✋ STOP
-        """
+    st.title(
+        "⚙️ Settings"
     )
 
 
-# ============================================================
-# HISTORY PAGE
-# ============================================================
+    # ========================================================
+    # ROBOT
+    # ========================================================
 
-elif page == "History":
-
-    st.markdown(
-        '<div class="main-title">📜 Command History</div>',
-        unsafe_allow_html=True
+    st.subheader(
+        "🤖 Robot Settings"
     )
 
-    st.markdown(
-        '<div class="main-subtitle">'
-        'Recently detected robot commands'
-        '</div>',
-        unsafe_allow_html=True
+
+    st.session_state.robot_speed = st.slider(
+
+        "Robot Movement Speed",
+
+        min_value=0.5,
+
+        max_value=5.0,
+
+        value=float(
+            st.session_state.robot_speed
+        ),
+
+        step=0.5
     )
 
-    if len(st.session_state.command_history) == 0:
 
-        st.info(
-            "No command history available yet."
-        )
-
-    else:
-
-        for command in reversed(
-            st.session_state.command_history
-        ):
-
-            info = COMMAND_INFO.get(
-                command,
-                COMMAND_INFO["UNKNOWN"]
-            )
-
-            st.write(
-                f"{info['icon']} **{command}**"
-            )
-
-
-# ============================================================
-# SETTINGS PAGE
-# ============================================================
-
-elif page == "Settings":
-
-    st.markdown(
-        '<div class="main-title">⚙️ Settings</div>',
-        unsafe_allow_html=True
+    st.caption(
+        "Higher value = faster virtual robot movement."
     )
 
-    st.markdown(
-        '<div class="main-subtitle">'
-        'Application configuration'
-        '</div>',
-        unsafe_allow_html=True
+
+    st.divider()
+
+
+    # ========================================================
+    # CAMERA
+    # ========================================================
+
+    st.subheader(
+        "📷 Camera Settings"
     )
 
-    st.markdown("### 🎮 Robot Settings")
 
-    speed = st.slider(
-        "Robot Speed",
-        min_value=1,
-        max_value=10,
-        value=3
-    )
+    st.session_state.mirror_camera = st.checkbox(
 
-    st.write(
-        f"Current robot speed: **{speed} px/frame**"
-    )
-
-    st.markdown("### 📷 Camera Settings")
-
-    mirror_camera = st.checkbox(
         "Mirror Camera",
-        value=True
+
+        value=st.session_state.mirror_camera
     )
 
-    show_landmarks = st.checkbox(
+
+    st.session_state.show_landmarks = st.checkbox(
+
         "Show Hand Landmarks",
-        value=True
+
+        value=st.session_state.show_landmarks
     )
 
-    st.markdown("### 🛡️ Safety")
 
-    safety_mode = st.toggle(
-        "Enable Safety Mode",
-        value=True
+    st.divider()
+
+
+    # ========================================================
+    # ACCOUNT
+    # ========================================================
+
+    st.subheader(
+        "👤 Account"
     )
 
-    if safety_mode:
+
+    st.write(
+        "Name:",
+        st.session_state.get(
+            "user_name",
+            "User"
+        )
+    )
+
+
+    st.write(
+        "Email:",
+        st.session_state.get(
+            "user_email",
+            ""
+        )
+    )
+
+
+    st.divider()
+
+
+    # ========================================================
+    # SYSTEM
+    # ========================================================
+
+    st.subheader(
+        "ℹ️ System Information"
+    )
+
+
+    st.write(
+        "Computer Vision: MediaPipe"
+    )
+
+    st.write(
+        "Image Processing: OpenCV"
+    )
+
+    st.write(
+        "Web Interface: Streamlit"
+    )
+
+    st.write(
+        "Camera Streaming: WebRTC"
+    )
+
+    st.write(
+        "Robot: Virtual Simulation"
+    )
+
+    st.write(
+        "Control: Hand Gesture Recognition"
+    )
+
+
+    st.divider()
+
+
+    # ========================================================
+    # RESET
+    # ========================================================
+
+    if st.button(
+
+        "🔄 Reset All Robot Data",
+
+        use_container_width=True
+    ):
+
+        st.session_state.robot_x = 50
+
+        st.session_state.robot_y = 50
+
+        st.session_state.robot_path = []
+
+        st.session_state.history = []
+
+        st.session_state.total_commands = 0
+
+        st.session_state.gesture_counts = {
+
+            "FORWARD": 0,
+
+            "BACKWARD": 0,
+
+            "LEFT": 0,
+
+            "RIGHT": 0,
+
+            "STOP": 0
+        }
+
+        st.session_state.last_recorded_command = None
+
+        st.session_state.emergency_stop = False
+
+        command_state.set_command(
+            "STOP"
+        )
 
         st.success(
-            "Safety mode enabled"
+            "Robot data reset successfully."
         )
-
-    else:
-
-        st.warning(
-            "Safety mode disabled"
-        )
-
-
-# ============================================================
-# FOOTER
-# ============================================================
-
-st.markdown(
-    """
-    <div class="footer">
-        Vision-Based Hand Gesture Recognition for Real-Time Robot Control
-        <br>
-        OpenCV • MediaPipe • Streamlit • Python
-    </div>
-    """,
-    unsafe_allow_html=True
-)
